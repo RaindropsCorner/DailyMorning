@@ -1,21 +1,20 @@
 {
-    "app_id": "wxaXXXXXXXXXXXXXXXXXXX2b41",
-    "app_secret": "1f28c7b7dXXXXXXXXXXXXXXXXXXXXXXXX0deb45b96e5",
-    "template_id": "WwPUydeN9tHXXXXXXXXXXXXXXXVOzxnepTi2KmBaAVs",
+    "app_id": "wxca86cc921af4d81b",
+    "app_secret": "f50725142da0e84179c21bb66359e4e3",
+    "template_id": "Bx0Fc-LJ84Nrsg7YFlFTbRvgeQOBW0LXqbn5H2qmXxM",
     "user": [
-        "oVtAfXXXXXXXXXXXXXXXXXXXXMrrVQzI",
-        "oVtAfXXXXXXXXXXXXXXXXXXXXo48fyoYw"
+        "ovwry1-knO5wqmZi2-fJJh77mnM8"
     ],
-    "province": "河北",
-    "city": "石家庄",
+    "province": "辽宁",
+    "city": "沈阳",
     "birthday1": {
         "name": "AA",
         "birthday": "r2001-01-0"
     },
     "birthday2": {
-        "name": "BB",
-        "birthday": "2000-01-01"
+        "name": "小郑老师",
+        "birthday": "r1998-2-14"
     },
-    "love_date": "2022-06-26"
+    "love_date": "2025-09-14"
 }
 
