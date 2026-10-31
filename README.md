@@ -156,6 +156,23 @@
 
 -----
 
+## 金句装饰框
+
+模板里 `{{note_ch.DATA}}{{note_ch2.DATA}}` 是拼接在同一行渲染的，所以装饰加在整段文字的头尾，
+折行落在中间，不会被切开。共 **30 套**，按日期序号轮换，30 天循环一次。
+
+```
+今日装饰框：第 2 套「书名」
+《 糁径杨花铺白毡，点溪荷叶叠青钱。 》
+```
+
+```bash
+PYTHONPATH=./vendor python3 main.py --preview-frames   # 一次看全 30 套
+PYTHONPATH=./vendor python3 main.py --dry-run --frame 16  # 指定第 16 套预览
+```
+
+关闭装饰：在 `config.json` 里加 `"frame_enabled": false`。
+
 ## 运行方式
 
 目前由**自有服务器**的 cron 驱动，不再依赖 GitHub Actions 的定时任务（Actions 的 cron 排队延迟常有 1~3 小时）。
