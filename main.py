@@ -9,6 +9,7 @@
   * 去掉 Linux 上无意义的 os.system("pause")；
   * 单个用户推送失败不再中断其他用户的推送。
 """
+import argparse
 import json
 import os
 import random
@@ -194,7 +195,7 @@ def get_ciba():
 
 
 def send_message(to_user, access_token, city_name, weather, max_temperature, min_temperature,
-                 note_ch, note_ch2, note_en, note_en2, config):
+                 note_ch, note_ch2, note_en, note_en2, config, dry_run=False):
     url = "https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={}".format(access_token)
     week_list = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
     year = localtime().tm_year
@@ -282,6 +283,11 @@ def send_message(to_user, access_token, city_name, weather, max_temperature, min
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT
     }
+    if dry_run:
+        print("=== dry-run 消息体 ===")
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return True
+
     try:
         response = post(url, headers=headers, json=data, timeout=REQUEST_TIMEOUT).json()
     except Exception as exc:
@@ -321,34 +327,61 @@ def load_config():
     return config
 
 
-if __name__ == "__main__":
-    config = load_config()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LAST_PUSH_FILE = os.path.join(BASE_DIR, ".last_push")
 
+
+def main():
+    parser = argparse.ArgumentParser(description="每日早安微信推送")
+    parser.add_argument("--dry-run", action="store_true", help="只打印消息体，不真正发送")
+    parser.add_argument("--force", action="store_true", help="今天已推送过也强制再发一次")
+    args = parser.parse_args()
+
+    config = load_config()
     if not config.get("app_id") or not config.get("app_secret"):
         print("推送消息失败：未找到 app_id / app_secret。")
-        print("请在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置")
-        print("WX_APP_ID 与 WX_APP_SECRET，或填回 config.json。")
-        sys.exit(1)
+        print("请在 config.json 中填写，或设置环境变量 WX_APP_ID / WX_APP_SECRET。")
+        return 1
 
-    # 获取accessToken
-    accessToken = get_access_token(config["app_id"], config["app_secret"])
-    # 接收的用户
+    today = date.today().isoformat()
+    # 幂等：同一天只推一次，调度重复触发也不会连发
+    if not args.dry_run and not args.force and os.path.exists(LAST_PUSH_FILE):
+        with open(LAST_PUSH_FILE, encoding="utf-8") as f:
+            if f.read().strip() == today:
+                print("今天（{}）已经推送过了，跳过。要强制重发请加 --force".format(today))
+                return 0
+
+    accessToken = "DRY_RUN" if args.dry_run else get_access_token(config["app_id"], config["app_secret"])
     users = config["user"]
-    # 传入省份和市获取天气信息
     province, city = config["province"], config["city"]
+
     try:
         weather, max_temperature, min_temperature = get_weather(province, city)
     except Exception as exc:
         print("[warn] 天气获取失败，本次推送使用占位内容：{!r}".format(exc))
         weather, max_temperature, min_temperature = "暂时无法获取", "-", "-"
-    # 获取每日金句（内部已做多源降级，不会抛异常）
+
     note_ch, note_ch2, note_en, note_en2 = get_ciba()
-    # 公众号推送消息
+
     failed = 0
     for user in users:
-        if not send_message(user, accessToken, city, weather, max_temperature, min_temperature,
-                            note_ch, note_ch2, note_en, note_en2, config):
+        ok = send_message(user, accessToken, city, weather, max_temperature, min_temperature,
+                          note_ch, note_ch2, note_en, note_en2, config, dry_run=args.dry_run)
+        if not ok:
             failed += 1
 
     print("本次推送完成：成功 {} / {}，失败 {}".format(len(users) - failed, len(users), failed))
-    sys.exit(1 if failed else 0)
+
+    if args.dry_run:
+        print("（dry-run：未真正发送，也未记录推送日期）")
+        return 0
+
+    if failed == 0:
+        with open(LAST_PUSH_FILE, "w", encoding="utf-8") as f:
+            f.write(today)
+
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

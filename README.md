@@ -156,6 +156,27 @@
 
 -----
 
+## 运行方式
+
+目前由**自有服务器**的 cron 驱动，不再依赖 GitHub Actions 的定时任务（Actions 的 cron 排队延迟常有 1~3 小时）。
+
+| 项 | 值 |
+|---|---|
+| 部署目录 | `/home/ubuntu/dsh-working/dailymorning` |
+| 触发 | `0 7-12 * * *`，每天 07:00 起每小时重试一次 |
+| 幂等 | 成功后写 `.last_push`，当天重复触发直接跳过 |
+| 日志 | `logs/cron.log` |
+| 依赖 | 装在 `vendor/`（系统 PyPI 不通，用镜像 `--target` 安装） |
+
+常用命令：
+
+```bash
+cd /home/ubuntu/dsh-working/dailymorning
+PYTHONPATH=./vendor python3 main.py --dry-run   # 只打印消息体，不发送
+PYTHONPATH=./vendor python3 main.py --force     # 忽略 .last_push 强制重发
+crontab -l                                       # 查看定时任务
+```
+
 ## 使用指南
 
 1. 在 [GitHub 仓库](https://github.com/JionghaoSong/DailyMorning_Star/) 查找关键参数
