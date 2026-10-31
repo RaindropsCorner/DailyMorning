@@ -339,6 +339,8 @@ def main():
     parser.add_argument("--force", action="store_true", help="今天已推送过也强制再发一次")
     parser.add_argument("--frame", type=int, help="强制指定第几套装饰框（1~30），预览时用")
     parser.add_argument("--preview-frames", action="store_true", help="打印全部 30 套装饰框后退出")
+    parser.add_argument("--only", type=int, metavar="N",
+                        help="只发给 config.json 里第 N 个收件人（从 0 开始），测试用")
     args = parser.parse_args()
 
     if args.preview_frames:
@@ -361,6 +363,12 @@ def main():
 
     accessToken = "DRY_RUN" if args.dry_run else get_access_token(config["app_id"], config["app_secret"])
     users = config["user"]
+    if args.only is not None:
+        if not 0 <= args.only < len(users):
+            print("--only 超出范围：config.json 里共 {} 个收件人（0~{}）".format(len(users), len(users) - 1))
+            return 2
+        users = [users[args.only]]
+        print("测试模式：只发给第 {} 个收件人 {}".format(args.only, users[0]))
     province, city = config["province"], config["city"]
 
     try:
@@ -393,7 +401,8 @@ def main():
         print("（dry-run：未真正发送，也未记录推送日期）")
         return 0
 
-    if failed == 0:
+    # 只在「发给全部收件人」且全部成功时才记录，测试/单发不会影响当天的正常推送
+    if failed == 0 and args.only is None:
         with open(LAST_PUSH_FILE, "w", encoding="utf-8") as f:
             f.write(today)
 
