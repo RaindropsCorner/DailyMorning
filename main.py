@@ -89,8 +89,9 @@ def get_weather(province, city):
     response_json = json.loads(response_data)
     weatherinfo = response_json["weatherinfo"]
     weather = weatherinfo["weather"]
-    temp = weatherinfo["temp"]
-    tempn = weatherinfo["tempn"]
+    # 微信模板消息会把 ℃ 滤掉（实测），换成 °C 才能完整显示
+    temp = weatherinfo["temp"].replace("℃", "°C")
+    tempn = weatherinfo["tempn"].replace("℃", "°C")
     return weather, temp, tempn
 
 
