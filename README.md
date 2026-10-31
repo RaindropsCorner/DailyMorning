@@ -6,12 +6,13 @@
 
 ### 2026.11.01
 
-**修复连续推送失败 / 密钥迁移到 Actions Secrets**
+**修复连续推送失败 / 支持用 Actions Secrets 覆盖密钥**
 
   * **金句多源降级**：词霸接口返回非 JSON 时不再崩溃，依次降级到「一言」「今日诗词」，全部失败则使用本地兜底金句；
   * **天气容错**：天气接口异常时用占位内容继续推送，不再中断整次任务；
   * **单用户隔离**：某个用户推送失败不影响其他用户；
-  * **密钥外置**：`app_secret` 从 `config.json` 移到 Actions Secrets（`WX_APP_ID` / `WX_APP_SECRET`），环境变量优先于配置文件；
+  * **密钥可被环境变量覆盖**：支持 `WX_APP_ID` / `WX_APP_SECRET`，配置后优先于 `config.json` 中的值；
+    当前仍沿用 `config.json` 里的配置（接口测试号不支持重置 AppSecret，暂不迁移）；
   * **Actions 升级**：`checkout@v2`→`v4`、`setup-python@v2`→`v5`（固定 3.12），并增加 pip 缓存、`timeout-minutes`、`concurrency`。
 
 ### 2025.07.12
