@@ -1,0 +1,44 @@
+name: keepalive
+
+# GitHub 会在公开仓库连续 60 天没有任何提交后，自动停用仓库里的 schedule 任务。
+# 这个 workflow 每 20 天往 .github/keepalive.json 写一次心跳并提交，把计时器重置掉。
+# 它自己也依赖 schedule，但因为它会产生提交，所以能自我维持。
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每月 1 号、21 号 03:00 UTC（北京 11:00），最大间隔 20 天，留足安全余量
+    - cron: '0 3 1,21 * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write heartbeat
+        run: |
+          mkdir -p .github
+          printf '{\n  "last_heartbeat": "%s",\n  "triggered_by": "%s"\n}\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${GITHUB_ACTOR:-schedule}" > .github/keepalive.json
+          cat .github/keepalive.json
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive.json
+          if git diff --staged --quiet; then
+            echo "心跳内容无变化，跳过提交"
+            exit 0
+          fi
+          git commit -m "chore(keepalive): 心跳 $(date -u +%Y-%m-%d)"
+          git push

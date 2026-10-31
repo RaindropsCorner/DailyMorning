@@ -14,6 +14,7 @@
   * **密钥可被环境变量覆盖**：支持 `WX_APP_ID` / `WX_APP_SECRET`，配置后优先于 `config.json` 中的值；
     当前仍沿用 `config.json` 里的配置（接口测试号不支持重置 AppSecret，暂不迁移）；
   * **Actions 升级**：`checkout@v2`→`v4`、`setup-python@v2`→`v5`（固定 3.12），并增加 pip 缓存、`timeout-minutes`、`concurrency`。
+  * **保活任务**：新增 `keepalive` workflow，每月 1 号与 21 号提交一次心跳文件，避免仓库长期无提交被 GitHub 自动停用定时任务。
 
 ### 2025.07.12
 
