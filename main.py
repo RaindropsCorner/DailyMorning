@@ -21,6 +21,7 @@ import requests
 from requests import get, post
 
 import cityinfo
+import extras
 import frames
 from zhdate import ZhDate
 
@@ -219,6 +220,10 @@ def send_message(to_user, access_token, city_name, weather, max_temperature, min
         if k[0:5] == "birth":
             birthdays[k] = v
 
+    # 当天的农历/节气/节日，接在日期行后面：2026-11-07 星期六 · 立冬 · 农历九月廿九
+    note = extras.day_note(today)
+    tip = extras.weather_tip(weather, max_temperature, min_temperature)
+
     data = {
         "touser": to_user,
         "template_id": config["template_id"],
@@ -226,7 +231,7 @@ def send_message(to_user, access_token, city_name, weather, max_temperature, min
         "topcolor": "#FF0000",
         "data": {
             "date": {
-                "value": "{} {}".format(today, week),
+                "value": "{} {}{}".format(today, week, (" · " + note) if note else ""),
                 "color": get_color()
             },
             "city": {
@@ -234,7 +239,7 @@ def send_message(to_user, access_token, city_name, weather, max_temperature, min
                 "color": get_color()
             },
             "weather": {
-                "value": weather,
+                "value": weather + (" · " + tip if tip else ""),
                 "color": get_color()
             },
             "min_temperature": {
