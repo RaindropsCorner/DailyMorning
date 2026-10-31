@@ -21,6 +21,7 @@ import requests
 from requests import get, post
 
 import cityinfo
+import frames
 from zhdate import ZhDate
 
 # (连接超时, 读取超时)
@@ -335,7 +336,13 @@ def main():
     parser = argparse.ArgumentParser(description="每日早安微信推送")
     parser.add_argument("--dry-run", action="store_true", help="只打印消息体，不真正发送")
     parser.add_argument("--force", action="store_true", help="今天已推送过也强制再发一次")
+    parser.add_argument("--frame", type=int, help="强制指定第几套装饰框（1~30），预览时用")
+    parser.add_argument("--preview-frames", action="store_true", help="打印全部 30 套装饰框后退出")
     args = parser.parse_args()
+
+    if args.preview_frames:
+        frames.preview()
+        return 0
 
     config = load_config()
     if not config.get("app_id") or not config.get("app_secret"):
@@ -362,6 +369,15 @@ def main():
         weather, max_temperature, min_temperature = "暂时无法获取", "-", "-"
 
     note_ch, note_ch2, note_en, note_en2 = get_ciba()
+
+    # 套上当天轮换的装饰框。模板里 note_ch 与 note_ch2 是拼接渲染的，
+    # 所以装饰加在整段文字的头尾，折行落在中间，不会把框切坏。
+    if config.get("frame_enabled", True):
+        idx, frame_name, _, _ = frames.pick(date.today(), args.frame)
+        framed, _ = frames.wrap(note_ch + note_ch2, date.today(), args.frame)
+        if framed:
+            note_ch, note_ch2 = _split_two_lines(framed)
+        print("今日装饰框：第 {} 套「{}」".format(idx, frame_name))
 
     failed = 0
     for user in users:
