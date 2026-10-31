@@ -10,6 +10,8 @@ on:
 env:
   # 固定为北京时间，规避时区导致的日期不准
   TZ: 'Asia/Shanghai'
+  # 告警 issue 用的标签
+  ALERT_LABEL: 'ci-failure'
 
 # 同一时间只跑一个，避免排队积压时连发多条
 concurrency:
@@ -18,6 +20,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   build:
@@ -49,3 +52,70 @@ jobs:
           WX_APP_ID: ${{ secrets.WX_APP_ID }}
           WX_APP_SECRET: ${{ secrets.WX_APP_SECRET }}
         run: python main.py
+
+      # 成功时：把之前挂掉的告警 issue 关掉，避免长期残留
+      - name: 推送恢复后关闭告警
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          enabled=$(gh api "repos/${GH_REPO}" --jq .has_issues || echo false)
+          if [ "$enabled" != "true" ]; then
+            echo "仓库未开启 Issues，跳过告警关闭"
+            exit 0
+          fi
+          num=$(gh issue list --label "$ALERT_LABEL" --state open --limit 1 --json number --jq '.[0].number // empty' || true)
+          if [ -n "$num" ]; then
+            gh issue close "$num" --comment "✅ 定时推送已恢复正常，本次运行：${RUN_URL}"
+            echo "已关闭告警 issue #${num}"
+          else
+            echo "没有需要关闭的告警"
+          fi
+
+      # 失败时：开 issue 或追加评论，避免每天刷一条新 issue
+      - name: 失败时创建告警 issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_DATE: ${{ github.run_number }}
+        run: |
+          enabled=$(gh api "repos/${GH_REPO}" --jq .has_issues || echo false)
+          if [ "$enabled" != "true" ]; then
+            echo "仓库未开启 Issues，跳过告警（到 Settings → Features 勾选 Issues 即可启用）"
+            exit 0
+          fi
+
+          gh label create "$ALERT_LABEL" --color B60205 \
+            --description "定时推送失败告警" 2>/dev/null || true
+
+          BODY=$(cat <<EOF
+          **每日早安推送失败**（第 ${RUN_DATE} 次运行）
+
+          - 运行记录：${RUN_URL}
+          - 时间：$(date -u '+%Y-%m-%d %H:%M UTC')
+
+          常见原因，按出现频率排序：
+
+          1. **金句源不可用** —— 日志里搜 \`[warn] 金句源\`。若四级降级已经走到底，说明三个在线源都挂了，但不该影响推送；如果整次任务失败，看下一条。
+          2. **微信接口报错** —— 日志里搜 \`errcode\`。\`40001\` 是 access_token 无效（AppSecret 不对），\`40037\` 是模板 id 不对。
+          3. **依赖安装失败** —— 看 \`install pip packages\` 那一步。
+          4. **天气接口异常** —— 这个不会导致失败，只会用占位内容。
+
+          推送恢复后，本 issue 会在下一次成功运行时自动关闭。
+          EOF
+          )
+
+          num=$(gh issue list --label "$ALERT_LABEL" --state open --limit 1 --json number --jq '.[0].number // empty' || true)
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "$BODY"
+            echo "已在现有 issue #${num} 追加评论"
+          else
+            gh issue create --title "定时推送失败：$(date -u +%Y-%m-%d)" \
+              --label "$ALERT_LABEL" --body "$BODY"
+            echo "已创建新的告警 issue"
+          fi

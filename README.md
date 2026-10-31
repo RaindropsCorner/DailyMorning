@@ -15,6 +15,7 @@
     当前仍沿用 `config.json` 里的配置（接口测试号不支持重置 AppSecret，暂不迁移）；
   * **Actions 升级**：`checkout@v2`→`v4`、`setup-python@v2`→`v5`（固定 3.12），并增加 pip 缓存、`timeout-minutes`、`concurrency`。
   * **保活任务**：新增 `keepalive` workflow，每月 1 号与 21 号提交一次心跳文件，避免仓库长期无提交被 GitHub 自动停用定时任务。
+  * **失败告警**：任务失败时自动创建 issue（已存在则追加评论），推送恢复后自动关闭；仓库开启 Issues 后生效。
 
 ### 2025.07.12
 
