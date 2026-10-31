@@ -1,37 +1,71 @@
 # -*- coding: UTF-8 -*-
-import random
-from time import time, localtime
-import requests
-import cityinfo
-from requests import get, post
-from datetime import datetime, date
-from zhdate import ZhDate
-import sys
+"""每日早安推送。
+
+2026-11-01 健壮性修复：
+  * 金句改为多源降级（词霸 → 一言 → 今日诗词 → 本地兜底），
+    词霸接口返回非 JSON 时不再让整次推送崩掉；
+  * 天气、金句均加超时与异常兜底，任一外部接口失败仍会推送其余内容；
+  * 配置支持从环境变量读取（WX_APP_ID / WX_APP_SECRET），便于改用 Actions Secrets；
+  * 去掉 Linux 上无意义的 os.system("pause")；
+  * 单个用户推送失败不再中断其他用户的推送。
+"""
+import json
 import os
+import random
+import sys
+from datetime import date, datetime
+from time import localtime
+
+import requests
+from requests import get, post
+
+import cityinfo
+from zhdate import ZhDate
+
+# (连接超时, 读取超时)
+REQUEST_TIMEOUT = (3, 8)
+
+ICIBA_URL = "https://open.iciba.com/dsapi/"
+HITOKOTO_URL = "https://v1.hitokoto.cn/?c=i&c=k&encode=json"
+JINRISHICI_URL = "https://v1.jinrishici.com/all.json"
+
+USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+# 在线金句源全部不可用时使用的本地兜底（中文, 英文）
+FALLBACK_QUOTES = [
+    ("愿你今日所遇皆为温柔", "May today treat you gently."),
+    ("慢慢来，比较快", "Slow is smooth, smooth is fast."),
+    ("生活明朗，万物可爱", "The world is bright, and everything is lovely."),
+    ("心之所向，素履以往", "Follow your heart, even in plain shoes."),
+    ("保持热爱，奔赴山海", "Keep loving, keep moving toward the vast."),
+    ("今天也要好好吃饭", "Remember to eat well today."),
+    ("愿你眼里有光，心中有暖", "May your eyes hold light, your heart hold warmth."),
+    ("不必追赶，自有花期", "No need to rush — everything blooms in its own time."),
+    ("晴时有风，雨时有伞", "Wind on sunny days, an umbrella when it rains."),
+    ("愿你被这个世界温柔以待", "May the world be gentle with you."),
+    ("向阳而生，逐光而行", "Grow toward the sun, walk toward the light."),
+    ("所有的美好，都在路上", "All good things are on their way."),
+]
 
 
 def get_color():
-    # 获取随机颜色
+    # 获取随机颜色（微信已不支持自定义颜色，仅保留以兼容旧模板）
     get_colors = lambda n: list(map(lambda i: "#" + "%06x" % random.randint(0, 0xFFFFFF), range(n)))
     color_list = get_colors(100)
     return random.choice(color_list)
 
 
-def get_access_token():
-    # appId
-    app_id = config["app_id"]
-    # appSecret
-    app_secret = config["app_secret"]
+def get_access_token(app_id, app_secret):
     post_url = ("https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={}&secret={}"
                 .format(app_id, app_secret))
     try:
-        access_token = get(post_url).json()['access_token']
+        payload = get(post_url, timeout=REQUEST_TIMEOUT).json()
+        return payload["access_token"]
     except KeyError:
         print("获取access_token失败，请检查app_id和app_secret是否正确")
-        os.system("pause")
+        print("接口返回：{}".format(payload))
         sys.exit(1)
-    # print(access_token)
-    return access_token
 
 
 def get_weather(province, city):
@@ -39,29 +73,21 @@ def get_weather(province, city):
     try:
         city_id = cityinfo.cityInfo[province][city]["AREAID"]
     except KeyError:
-        print("推送消息失败，请检查省份或城市是否正确")
-        os.system("pause")
-        sys.exit(1)
-    # city_id = 101280101
-    # 毫秒级时间戳
-    t = (int(round(time() * 1000)))
+        raise ValueError("推送消息失败，请检查省份或城市是否正确")
+
+    t = int(round(datetime.now().timestamp() * 1000))
     headers = {
         "Referer": "http://www.weather.com.cn/weather1d/{}.shtml".format(city_id),
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36'
+        'User-Agent': USER_AGENT
     }
     url = "http://d1.weather.com.cn/dingzhi/{}.html?_={}".format(city_id, t)
-    response = get(url, headers=headers)
+    response = get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     response.encoding = "utf-8"
     response_data = response.text.split(";")[0].split("=")[-1]
-    response_json = eval(response_data)
-    # print(response_json)
+    response_json = json.loads(response_data)
     weatherinfo = response_json["weatherinfo"]
-    # 天气
     weather = weatherinfo["weather"]
-    # 最高气温
     temp = weatherinfo["temp"]
-    # 最低气温
     tempn = weatherinfo["tempn"]
     return weather, temp, tempn
 
@@ -75,8 +101,6 @@ def get_birthday(birthday, year, today):
         # 今年生日
         birthday = ZhDate(year, r_mouth, r_day).to_datetime().date()
         year_date = birthday
-
-
     else:
         # 获取国历生日的今年对应月和日
         birthday_month = int(birthday.split("-")[1])
@@ -100,35 +124,77 @@ def get_birthday(birthday, year, today):
     return birth_day
 
 
-def get_ciba():
-    url = "https://open.iciba.com/dsapi/"
-    headers = {
-        'Content-Type': 'application/json',
-        'User-Agent': "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36"
-    }
-    response = requests.get(url, headers=headers)
+def _split_two_lines(text, limit=20):
+    """把一段话拆成两行，模板里分别占 note_xx 与 note_xx2。"""
+    text = (text or "").strip()
+    text = " ".join(text.split())
+    if len(text) > limit:
+        return text[:limit], text[limit:]
+    return text, ""
+
+
+def _fetch_iciba(session):
+    response = session.get(ICIBA_URL, headers={'User-Agent': USER_AGENT}, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
     data = response.json()
-
-    note_en = data["content"]
-    note_ch = data["note"]
-
-    if len(note_en) > 20:
-        note_en2 = note_en[20:]
-        note_en = note_en[:20]
-    else:
-        note_en2 = ""
-
-    if len(note_ch) > 20:
-        note_ch2 = note_ch[20:]
-        note_ch = note_ch[:20]
-    else:
-        note_ch2 = ""
-
-    return note_ch, note_ch2, note_en, note_en2
+    note_ch = (data.get("note") or "").strip()
+    note_en = (data.get("content") or "").strip()
+    if not note_ch and not note_en:
+        raise ValueError("词霸返回内容为空")
+    return note_ch, note_en
 
 
-def send_message(to_user, access_token, city_name, weather, max_temperature, min_temperature, note_ch, note_ch2,
-                 note_en, note_en2):
+def _fetch_hitokoto(session):
+    response = session.get(HITOKOTO_URL, headers={'User-Agent': USER_AGENT}, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    data = response.json()
+    note_ch = (data.get("hitokoto") or "").strip()
+    if not note_ch:
+        raise ValueError("一言返回内容为空")
+    return note_ch, ""
+
+
+def _fetch_jinrishici(session):
+    response = session.get(JINRISHICI_URL, headers={'User-Agent': USER_AGENT}, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    data = response.json()
+    note_ch = (data.get("content") or "").strip()
+    if not note_ch:
+        raise ValueError("今日诗词返回内容为空")
+    return note_ch, ""
+
+
+def _english_of_the_day():
+    """在线源不提供英文时，按日期取一句固定的英文短句（当天稳定）。"""
+    _, english = FALLBACK_QUOTES[date.today().toordinal() % len(FALLBACK_QUOTES)]
+    return english
+
+
+def get_ciba():
+    """获取每日金句，多源降级，任何情况下都返回 4 个可直接塞进模板的字符串。"""
+    session = requests.Session()
+    sources = (
+        ("词霸", _fetch_iciba),
+        ("一言", _fetch_hitokoto),
+        ("今日诗词", _fetch_jinrishici),
+    )
+    for name, fetch in sources:
+        try:
+            note_ch, note_en = fetch(session)
+        except Exception as exc:  # 网络错误、超时、非 JSON、字段缺失都走这里
+            print("[warn] 金句源「{}」不可用：{!r}".format(name, exc))
+            continue
+        if not note_en:
+            note_en = _english_of_the_day()
+        return _split_two_lines(note_ch) + _split_two_lines(note_en)
+
+    print("[warn] 所有在线金句源均不可用，改用本地兜底金句")
+    note_ch, note_en = FALLBACK_QUOTES[date.today().toordinal() % len(FALLBACK_QUOTES)]
+    return _split_two_lines(note_ch) + _split_two_lines(note_en)
+
+
+def send_message(to_user, access_token, city_name, weather, max_temperature, min_temperature,
+                 note_ch, note_ch2, note_en, note_en2, config):
     url = "https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={}".format(access_token)
     week_list = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
     year = localtime().tm_year
@@ -136,18 +202,20 @@ def send_message(to_user, access_token, city_name, weather, max_temperature, min
     day = localtime().tm_mday
     today = datetime.date(datetime(year=year, month=month, day=day))
     week = week_list[today.isoweekday() % 7]
-    # 获取在一起的日子的日期格式
-    love_year = int(config["love_date"].split("-")[0])
-    love_month = int(config["love_date"].split("-")[1])
-    love_day = int(config["love_date"].split("-")[2])
-    love_date = date(love_year, love_month, love_day)
-    # 获取在一起的日期差
-    love_days = str(today.__sub__(love_date)).split(" ")[0]
+
+    # 在一起的天数（未配置 love_date 时显示占位符）
+    love_days = "-"
+    if config.get("love_date"):
+        love_year, love_month, love_day = (int(x) for x in config["love_date"].split("-"))
+        love_date = date(love_year, love_month, love_day)
+        love_days = str(today.__sub__(love_date)).split(" ")[0]
+
     # 获取所有生日数据
     birthdays = {}
     for k, v in config.items():
         if k[0:5] == "birth":
             birthdays[k] = v
+
     data = {
         "touser": to_user,
         "template_id": config["template_id"],
@@ -198,55 +266,89 @@ def send_message(to_user, access_token, city_name, weather, max_temperature, min
     }
 
     for key, value in birthdays.items():
-        # 获取距离下次生日的时间
-        birth_day = get_birthday(value["birthday"], year, today)
+        try:
+            birth_day = get_birthday(value["birthday"], year, today)
+        except Exception as exc:
+            print("[warn] 生日「{}」解析失败：{!r}".format(value.get("name"), exc))
+            continue
         if birth_day == 0:
             birthday_data = "今天{}生日哦，祝{}生日快乐！".format(value["name"], value["name"])
         else:
             birthday_data = "距离{}的生日还有{}天".format(value["name"], birth_day)
         # 将生日数据插入data
         data["data"][key] = {"value": birthday_data, "color": get_color()}
+
     headers = {
         'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36'
+        'User-Agent': USER_AGENT
     }
-    response = post(url, headers=headers, json=data).json()
-    if response["errcode"] == 40037:
+    try:
+        response = post(url, headers=headers, json=data, timeout=REQUEST_TIMEOUT).json()
+    except Exception as exc:
+        print("推送消息失败：{} 请求异常 {!r}".format(to_user, exc))
+        return False
+
+    errcode = response.get("errcode", -1)
+    if errcode == 40037:
         print("推送消息失败，请检查模板id是否正确")
-    elif response["errcode"] == 40036:
+    elif errcode == 40036:
         print("推送消息失败，请检查模板id是否为空")
-    elif response["errcode"] == 40003:
+    elif errcode == 40003:
         print("推送消息失败，请检查微信号是否正确")
-    elif response["errcode"] == 0:
-        print("推送消息成功")
+    elif errcode == 0:
+        print("推送消息成功 -> {}".format(to_user))
+        return True
     else:
-        print(response)
+        print("推送消息失败 -> {}：{}".format(to_user, response))
+    return False
+
+
+def load_config():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        print("推送消息失败，请检查 config.json 是否与程序位于同一路径")
+        sys.exit(1)
+    except json.JSONDecodeError as exc:
+        print("推送消息失败，请检查配置文件格式是否正确：{}".format(exc))
+        sys.exit(1)
+
+    # 环境变量优先，其次才是配置文件（便于把密钥放 Actions Secrets）
+    config["app_id"] = os.environ.get("WX_APP_ID") or config.get("app_id", "")
+    config["app_secret"] = os.environ.get("WX_APP_SECRET") or config.get("app_secret", "")
+    return config
 
 
 if __name__ == "__main__":
-    try:
-        with open("config.json", encoding="utf-8") as f:
-            config = eval(f.read())
-    except FileNotFoundError:
-        print("推送消息失败，请检查config.txt文件是否与程序位于同一路径")
-        os.system("pause")
-        sys.exit(1)
-    except SyntaxError:
-        print("推送消息失败，请检查配置文件格式是否正确")
-        os.system("pause")
+    config = load_config()
+
+    if not config.get("app_id") or not config.get("app_secret"):
+        print("推送消息失败：未找到 app_id / app_secret。")
+        print("请在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置")
+        print("WX_APP_ID 与 WX_APP_SECRET，或填回 config.json。")
         sys.exit(1)
 
     # 获取accessToken
-    accessToken = get_access_token()
+    accessToken = get_access_token(config["app_id"], config["app_secret"])
     # 接收的用户
     users = config["user"]
     # 传入省份和市获取天气信息
     province, city = config["province"], config["city"]
-    weather, max_temperature, min_temperature = get_weather(province, city)
-    # 获取词霸每日金句
+    try:
+        weather, max_temperature, min_temperature = get_weather(province, city)
+    except Exception as exc:
+        print("[warn] 天气获取失败，本次推送使用占位内容：{!r}".format(exc))
+        weather, max_temperature, min_temperature = "暂时无法获取", "-", "-"
+    # 获取每日金句（内部已做多源降级，不会抛异常）
     note_ch, note_ch2, note_en, note_en2 = get_ciba()
     # 公众号推送消息
+    failed = 0
     for user in users:
-        send_message(user, accessToken, city, weather, max_temperature, min_temperature, note_ch, note_ch2, note_en, note_en2)
-    os.system("pause")
+        if not send_message(user, accessToken, city, weather, max_temperature, min_temperature,
+                            note_ch, note_ch2, note_en, note_en2, config):
+            failed += 1
+
+    print("本次推送完成：成功 {} / {}，失败 {}".format(len(users) - failed, len(users), failed))
+    sys.exit(1 if failed else 0)
